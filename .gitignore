@@ -1,9 +1,10 @@
-node_modules/
+server/node_modules/
+client/node_modules/
 dist/
 .env
-data/uploads/
-data/textures/
-data/metadata.json
+server/data/uploads/
+server/data/textures/
+server/data/metadata.json
 .DS_Store
 *.log
 .vscode/
