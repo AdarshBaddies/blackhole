@@ -1,0 +1,49 @@
+body {
+    margin: 0;
+    background-color: #000000;
+    overflow: hidden;
+    color: white;
+    font-family: 'Inter', sans-serif;
+}
+
+canvas {
+    display: block;
+}
+
+#ui {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 100;
+    pointer-events: none;
+}
+
+#ui * {
+    pointer-events: auto;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.5rem;
+    margin-bottom: 20px;
+    background: linear-gradient(to right, #fff, #555);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+button {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 10px 20px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+}
+
+button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: white;
+}
