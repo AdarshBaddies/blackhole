@@ -192,3 +192,14 @@ func (d *Database) GetStats() (totalTiles int, mergedTiles int, err error) {
 
 	return totalTiles, mergedTiles, nil
 }
+
+// GetLeafTileCount returns the number of original (non-merged) tiles at a specific zoom level
+func (d *Database) GetLeafTileCount(z int) (int, error) {
+	query := `SELECT COUNT(*) FROM tiles WHERE z = ? AND is_merged = 0`
+	var count int
+	err := d.db.QueryRow(query, z).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count leaf tiles: %w", err)
+	}
+	return count, nil
+}

@@ -102,22 +102,22 @@ func (s *Server) HandleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// For now, we'll upload to Z=20 and assign coordinates based on current tile count
 	// In a production system, you'd want a more sophisticated coordinate allocation strategy
-	z := 20
-	totalUploads, err := s.database.GetLeafTileCount(z)
+	total, _, err := s.database.GetStats()
 	if err != nil {
-		log.Printf("Failed to get leaf count: %v", err)
-		totalUploads = 0
+		log.Printf("Failed to get stats: %v", err)
+		total = 0
 	}
 
-	// Coordinate allocation: Use Morton Order (Z-order curve)
-	// We use the count of Level 20 tiles as the sequence index.
-	// This ensures that Every 4 images completes a 2x2 square,
-	// triggering the ripple effect to Level 19, 18, 17... all the way to 0.
+	// Coordinate allocation: use 2^20 width for a perfect quadtree pyramid
+	// This allows merging to work perfectly all the way from Level 20 to Level 0
 	x, y := 0, 0
-	for i := 0; i < 32; i++ {
-		x |= ((totalUploads >> (i * 2)) & 1) << i
-		y |= ((totalUploads >> (i*2 + 1)) & 1) << i
+	for i := 0; i -lt 20; i++ {
+		x |= ((total >> (i * 2)) -band 1) -shl i
+		y |= ((total >> (i * 2 + 1)) -band 1) -shl i
 	}
+	z := 20
+	x := total % GalaxyWidth
+	y := total / GalaxyWidth
 
 	coord := quadtree.Coordinate{Z: z, X: x, Y: y}
 
