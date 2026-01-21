@@ -6,6 +6,8 @@ on:
       - 'README.md'
       - 'docs/**'
       - '*.md' 
+      - 'go-backend'
+      - 'server'
 
 permissions:
   contents: read
