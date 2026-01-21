@@ -1,0 +1,256 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"image"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+
+	"github.com/AdarshBaddies/blackhole/go-backend/internal/config"
+	"github.com/AdarshBaddies/blackhole/go-backend/internal/db"
+	"github.com/AdarshBaddies/blackhole/go-backend/internal/imageproc"
+	"github.com/AdarshBaddies/blackhole/go-backend/internal/quadtree"
+	"github.com/gorilla/mux"
+)
+
+// Server handles HTTP requests
+type Server struct {
+	config    *config.Config
+	processor *imageproc.Processor
+	database  *db.Database
+	storage   quadtree.Storage
+	qtManager *quadtree.QuadtreeManager
+}
+
+// NewServer creates a new API server
+func NewServer(
+	cfg *config.Config,
+	processor *imageproc.Processor,
+	database *db.Database,
+	storage quadtree.Storage,
+	qtManager *quadtree.QuadtreeManager,
+) *Server {
+	return &Server{
+		config:    cfg,
+		processor: processor,
+		database:  database,
+		storage:   storage,
+		qtManager: qtManager,
+	}
+}
+
+// Router creates and configures the HTTP router
+func (s *Server) Router() *mux.Router {
+	r := mux.NewRouter()
+
+	// API endpoints
+	r.HandleFunc("/upload", s.HandleUpload).Methods("POST", "OPTIONS")
+	r.HandleFunc("/tiles/{z}/{x}/{y}.webp", s.HandleGetTile).Methods("GET")
+	r.HandleFunc("/stats", s.HandleGetStats).Methods("GET")
+
+	// Add CORS middleware
+	r.Use(s.corsMiddleware)
+	r.Use(s.loggingMiddleware)
+
+	return r
+}
+
+// UploadResponse represents the JSON response for upload
+type UploadResponse struct {
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+	Coordinate struct {
+		Z int `json:"z"`
+		X int `json:"x"`
+		Y int `json:"y"`
+	} `json:"coordinate"`
+	TilePath    string   `json:"tilePath"`
+	MergedTiles []string `json:"mergedTiles,omitempty"`
+}
+
+// HandleUpload processes image uploads
+func (s *Server) HandleUpload(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form
+	err := r.ParseMultipartForm(int64(s.config.MaxUploadSizeMB) * 1024 * 1024)
+	if err != nil {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
+
+	// Get the uploaded file
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "No image provided", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	log.Printf("Processing upload: %s (%d bytes)", header.Filename, header.Size)
+
+	// Process the image (EXIF strip, resize, Perlin noise, WebP conversion)
+	processedData, err := s.processor.ProcessImage(file)
+	if err != nil {
+		log.Printf("Failed to process image: %v", err)
+		http.Error(w, "Failed to process image", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Processed image: %d bytes", len(processedData))
+
+	// For now, we'll upload to Z=20 and assign coordinates based on current tile count
+	// In a production system, you'd want a more sophisticated coordinate allocation strategy
+	total, _, err := s.database.GetStats()
+	if err != nil {
+		log.Printf("Failed to get stats: %v", err)
+		total = 0
+	}
+
+	// Simple coordinate allocation: use tile count to determine X, Y
+	z := 20
+	x := total % 1000
+	y := total / 1000
+
+	coord := quadtree.Coordinate{Z: z, X: x, Y: y}
+
+	// Decode the processed data to save as image
+	img, _, err := image.Decode(bytes.NewReader(processedData))
+	if err != nil {
+		log.Printf("Failed to decode processed image: %v", err)
+		http.Error(w, "Failed to decode processed image", http.StatusInternalServerError)
+		return
+	}
+
+	// Save tile to storage
+	err = s.storage.SaveTile(coord, img)
+	if err != nil {
+		log.Printf("Failed to save tile: %v", err)
+		http.Error(w, "Failed to save tile", http.StatusInternalServerError)
+		return
+	}
+
+	// Save to database
+	tilePath := coord.TilePath(s.config.TilesDir)
+	_, err = s.database.InsertTile(coord.Z, coord.X, coord.Y, tilePath, false)
+	if err != nil {
+		log.Printf("Failed to save tile to database: %v", err)
+		// Continue anyway - recovery can rebuild database
+	}
+
+	log.Printf("Saved tile to %s", coord.String())
+
+	// Check and merge if "Group of 4" is complete
+	var mergedPaths []string
+	generatedTiles, err := s.qtManager.PropagateUpward(coord, s.storage)
+	if err != nil {
+		log.Printf("Warning: merge propagation failed: %v", err)
+	} else if len(generatedTiles) > 0 {
+		log.Printf("Generated %d parent tiles through merging", len(generatedTiles))
+		for _, genCoord := range generatedTiles {
+			mergedPaths = append(mergedPaths, genCoord.String())
+			// Save merged tiles to database
+			genPath := genCoord.TilePath(s.config.TilesDir)
+			s.database.InsertTile(genCoord.Z, genCoord.X, genCoord.Y, genPath, true)
+		}
+	}
+
+	// Send response
+	response := UploadResponse{
+		Success:     true,
+		Message:     "Image uploaded and processed",
+		MergedTiles: mergedPaths,
+		TilePath:    tilePath,
+	}
+	response.Coordinate.Z = coord.Z
+	response.Coordinate.X = coord.X
+	response.Coordinate.Y = coord.Y
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// HandleGetTile serves a tile image
+func (s *Server) HandleGetTile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	z, err := strconv.Atoi(vars["z"])
+	if err != nil {
+		http.Error(w, "Invalid Z coordinate", http.StatusBadRequest)
+		return
+	}
+
+	x, err := strconv.Atoi(vars["x"])
+	if err != nil {
+		http.Error(w, "Invalid X coordinate", http.StatusBadRequest)
+		return
+	}
+
+	y, err := strconv.Atoi(vars["y"])
+	if err != nil {
+		http.Error(w, "Invalid Y coordinate", http.StatusBadRequest)
+		return
+	}
+
+	coord := quadtree.Coordinate{Z: z, X: x, Y: y}
+	tilePath := coord.TilePath(s.config.TilesDir)
+
+	// Check if file exists
+	if _, err := os.Stat(tilePath); os.IsNotExist(err) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve the file
+	w.Header().Set("Content-Type", "image/webp")
+	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	http.ServeFile(w, r, tilePath)
+}
+
+// StatsResponse represents database statistics
+type StatsResponse struct {
+	TotalTiles  int `json:"totalTiles"`
+	MergedTiles int `json:"mergedTiles"`
+}
+
+// HandleGetStats returns database statistics
+func (s *Server) HandleGetStats(w http.ResponseWriter, r *http.Request) {
+	total, merged, err := s.database.GetStats()
+	if err != nil {
+		http.Error(w, "Failed to get statistics", http.StatusInternalServerError)
+		return
+	}
+
+	response := StatsResponse{
+		TotalTiles:  total,
+		MergedTiles: merged,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// corsMiddleware adds CORS headers
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loggingMiddleware logs HTTP requests
+func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}

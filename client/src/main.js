@@ -12,6 +12,35 @@ let instancedChunks = [];
 async function init() {
     console.log('Initializing Humanity Globe...');
 
+
+    //
+    const audio = document.getElementById('bg-audio');
+    const audioBtn = document.getElementById('audio-toggle');
+    let hasStarted = false;
+
+    // A. Start music on the first click anywhere on the page
+    window.addEventListener('click', () => {
+        if (!hasStarted) {
+            audio.play();
+            audioBtn.innerText = "🔊";
+            hasStarted = true;
+        }
+    }, { once: true }); // {once: true} makes this listener run only once
+
+    // B. Toggle Pause/Play with the button
+    audioBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevents the 'window click' from triggering
+        if (audio.paused) {
+            audio.play();
+            audioBtn.innerText = "🔊";
+        } else {
+            audio.pause();
+            audioBtn.innerText = "🔇";
+        }
+    });
+
+    //
+
     const addBtn = document.getElementById('add-btn');
     if (addBtn) {
         addBtn.addEventListener('click', testUpload);
