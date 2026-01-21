@@ -1,6 +1,6 @@
 # Humanity Galaxy
 
-A hobby project building an infinite, 3D archive of human memories.
+A project building an infinite, 3D archive of human memories.
 
 ## Overview
 **Humanity Galaxy** is an endless, zoomable digital universe designed to exist for decades. It serves as a modern, 3D successor to "limited" digital canvas concepts, aiming to create a continuous map of humanity that grows until it reaches a scale of one decillion individual photos.
