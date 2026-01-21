@@ -17,4 +17,4 @@ This is a "digital time capsule" where every participant contributes to a perman
 The ultimate goal is to reach a **decillion** ($10^{33}$) photos, creating a human-made universe as vast as the physical one. This is not just a website; it is an attempt to map the presence of every person who wishes to be remembered in the digital void.
 
 ---
-*This is a personal hobby project. Built for the love of 3D web tech and digital preservation.*
+*This is a personal project. Built for the executing my dream.*
