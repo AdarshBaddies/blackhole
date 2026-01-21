@@ -6,8 +6,9 @@ on:
       - 'README.md'
       - 'docs/**'
       - '*.md' 
-      - 'go-backend'
-      - 'server'
+      - '.github/workflows/deploy.yml'
+      - 'go-backend/**'
+      - 'server/**'
 
 permissions:
   contents: read
