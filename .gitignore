@@ -1,6 +1,7 @@
 server/node_modules/
 client/node_modules/
 dist/
+client/dist/
 .env
 server/data/uploads/
 server/data/textures/
